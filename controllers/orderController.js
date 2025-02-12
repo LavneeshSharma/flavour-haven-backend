@@ -1,3 +1,4 @@
+import { model } from "mongoose"
 import orderModel from "../models/orderModel.js"
 import userModel from "../models/userModel.js"
 import Razorpay from "razorpay"
@@ -27,23 +28,33 @@ const placeOrder = async (req, res) => {
     const savedOrder = await newOrder.save()
     console.log("Order saved to database:", savedOrder)
 
-    await userModel.findByIdAndUpdate(req.body.userId, { cartData: {} })
+    const updatedUser = await userModel.findByIdAndUpdate(
+      req.body.userId,
+      { cartData: {} },
+      { new: true, runValidators: true }
+    )
+    if (!updatedUser) throw new Error("User update failed")
+    
     console.log("User cart cleared")
-    const amountInCents = Math.round(req.body.amount * 100)
+
+    const amountInPaise = Math.round(req.body.amount * 100)
     const orderOptions = {
-      amount: amountInCents,
+      amount: amountInPaise,
       currency: "INR",
       receipt: `order_${savedOrder._id}`,
     }
+
     console.log("Creating Razorpay order with options:", orderOptions)
     const order = await razorpay.orders.create(orderOptions)
     console.log("Razorpay Order Created:", order)
+
     res.json({
       success: true,
       razorpayOrderId: order.id,
-      amount: amountInCents,
-      currency: "USD", 
+      amount: amountInPaise,
+      currency: "INR",
       orderId: savedOrder._id,
+      session_url: `${frontend_url}/verify?success=true&orderId=${savedOrder._id}`,
     })
   } catch (error) {
     console.error("Order Error:", error)
@@ -54,4 +65,40 @@ const placeOrder = async (req, res) => {
     })
   }
 }
-export{placeOrder}
+
+const verifyOrder = async (req, res) => {
+  try {
+    console.log("🔹 Received Data:", req.body); // Debug incoming request
+
+    const { orderId, success, userId, items, address } = req.body;
+
+    console.log(userId);
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Missing orderId" });
+    }
+
+    console.log(`🔹 Processing Order: ${orderId}, Success: ${success}`);
+
+    if (success === "true") {
+
+      const newOrder = await orderModel.create({
+        userId,
+        items,
+        address,
+      })
+
+  
+      return res.json({ success: true, message: "payment successfully stored in db" });
+    } else {
+    
+      return res.json({ success: false, message: "Payment Failed" });
+    }
+  } catch (error) {
+    console.error("🚨 Backend Error:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+export { placeOrder, verifyOrder }
